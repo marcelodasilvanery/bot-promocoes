@@ -1,17 +1,15 @@
 import requests
 import os
-import random
+import json
 
 # --- CONFIGURAÇÕES ---
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-SHOPEE_AFF_ID = os.getenv('SHOPEE_AFF_ID')
+# Se tiver ID de Afiliado do Mercado Livre, coloque nos Secrets como 'ML_AFF_ID'
+ML_AFF_ID = os.getenv('ML_AFF_ID', '') 
 
-# Headers cruciais para não ser bloqueado
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-    'Referer': 'https://shopee.com.br/',
-    'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json',
 }
 
@@ -20,67 +18,64 @@ def enviar_telegram(mensagem):
     data = {"chat_id": CHAT_ID, "text": mensagem, "parse_mode": "HTML"}
     try:
         resp = requests.post(url, data=data)
-        print(f"Telegram Resposta: {resp.status_code}")
+        print(f"Telegram Resposta: {resp.status_code} - {resp.text}")
     except Exception as e:
         print(f"Erro Telegram: {e}")
 
-def buscar_ofertas_shopee():
-    print(">>> Iniciando busca na Shopee...")
-    
-    # API de busca da Shopee (procurando por "oferta" ou "promocao")
-    # Isso é mais confiável do que tentar achar "Flash Sale" especifico
-    termo_busca = "oferta%20imperdivel" # Termo de busca
-    url_api = f"https://shopee.com.br/api/v4/search/search_item?by=relevancy&keyword={termo_busca}&limit=10&newest=0&order=desc&page_type=search"
+def buscar_ofertas_mercado_livre():
+    print(">>> Buscando no Mercado Livre...")
+    # API pública de busca de ofertas/deals do ML
+    url = "https://api.mercadolibre.com/sites/MLB/deals/search?limit=5"
     
     try:
-        resp = requests.get(url_api, headers=HEADERS)
-        print(f"Status Shopee: {resp.status_code}")
+        resp = requests.get(url, headers=HEADERS)
+        print(f"Status ML: {resp.status_code}")
         
-        # Se a Shopee bloquear (403 ou 404), avisamos no log
-        if resp.status_code != 200:
-            print(f"Erro ao acessar Shopee: {resp.text}")
+        if resp.status_code == 200:
+            data = resp.json()
+            results = data.get('results', [])
+            if results:
+                # Pega o primeiro produto
+                item = results[0]
+                nome = item.get('title')
+                preco = item.get('price')
+                link = item.get('permalink')
+                
+                # Adiciona ID de afiliado se existir
+                if ML_AFF_ID:
+                    link = f"{link}?af_id={ML_AFF_ID}"
+
+                return {
+                    "nome": nome,
+                    "preco": f"R$ {preco:.2f}",
+                    "link": link
+                }
+            else:
+                print("ML retornou lista vazia.")
+                return None
+        else:
+            print(f"Erro ML: {resp.text}")
             return None
-
-        data = resp.json()
-        
-        # A estrutura padrão da busca é 'items'
-        items = data.get('items', [])
-
-        if not items:
-            print("Lista de itens vazia.")
-            return None
-
-        # Pega um item aleatório
-        produto_raw = random.choice(items)['item_basic']
-        
-        nome = produto_raw.get('name')
-        item_id = produto_raw.get('itemid')
-        shop_id = produto_raw.get('shopid')
-        
-        # Preço (Shopee manda em centavos, dividimos por 100000)
-        preco_raw = produto_raw.get('price', 0) / 100000
-        preco = f"R$ {preco_raw:.2f}".replace('.', ',')
-        
-        # Monta link com seu ID de afiliado
-        link_produto = f"https://shopee.com.br/product/{shop_id}/{item_id}"
-        link_afiliado = f"{link_produto}?af_siteid={SHOPEE_AFF_ID}"
-        
-        return {
-            "nome": nome,
-            "preco": preco,
-            "link": link_afiliado
-        }
-
     except Exception as e:
-        print(f"Erro no processamento: {e}")
+        print(f"Erro excecão ML: {e}")
         return None
 
+def buscar_ofertas_shopee_fallback():
+    # Fallback desativado temporariamente devido ao bloqueio 404
+    return None
+
 if __name__ == "__main__":
-    produto = buscar_ofertas_shopee()
+    # Tenta Mercado Livre
+    produto = buscar_ofertas_mercado_livre()
     
+    # Se não achar no ML, tenta Shopee (desativado no código acima, mas estrutura pronta)
+    if not produto:
+        produto = buscar_ofertas_shopee_fallback()
+
+    # RESULTADO
     if produto:
         msg = f"""
-🔥 <b>OFERTA ENCONTRADA!</b>
+🤖 <b>OFERTA AUTOMÁTICA</b>
 
 📦 <b>Produto:</b> {produto['nome']}
 💰 <b>Preço:</b> {produto['preco']}
@@ -89,4 +84,5 @@ if __name__ == "__main__":
 """
         enviar_telegram(msg)
     else:
-        print("Falha ao buscar produto. Verifique os logs acima.")
+        # Mensagem de teste para saber que o robô está vivo, mas sem ofertas
+        msg

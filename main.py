@@ -1,98 +1,129 @@
 import requests
 import os
+import json
+import random
 
 # --- CONFIGURAÇÕES ---
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-SHOPEE_AFF_ID = os.getenv('SHOPEE_AFF_ID') # Seu ID Shopee (ex: 12345678)
-ML_AFF_ID = os.getenv('ML_AFF_ID', '')     # Seu ID ML (opcional)
+
+# SEUS IDs DE AFILIADO (Coloque isso nos Secrets do GitHub)
+# Shopee: Apenas o número (ex: 1234567890)
+SHOPEE_ID = os.getenv('SHOPEE_AFF_ID', '') 
+# Magalu: Geralmente é um parâmetro na URL ou ID de parceiro. 
+# Se não tiver, deixe vazio.
+MAGALU_ID = os.getenv('MAGALU_PARTNER_ID', '')
+
+# Headers para parecer navegador
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+}
 
 def enviar_telegram(mensagem):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     data = {"chat_id": CHAT_ID, "text": mensagem, "parse_mode": "HTML"}
     try:
         requests.post(url, data=data)
-        print("Oferta enviada com sucesso!")
+        print("✅ Mensagem enviada ao Telegram.")
     except Exception as e:
-        print(f"Erro Telegram: {e}")
+        print(f"❌ Erro Telegram: {e}")
 
-def buscar_oferta_promobit():
-    print(">>> Buscando ofertas na API do Promobit...")
-    
-    # API pública do Promobit para pegar as Top Offers (Não requer chave para uso básico)
-    url = "https://backend-promobit.azurewebsites.net/v1/offer/top-offers"
-    
-    # Headers simples para parecer um navegador
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-        'Referer': 'https://www.promobit.com.br/'
-    }
+def buscar_magalu():
+    print(">>> Tentando Magazine Luiza...")
+    # API aberta de produtos mais vendidos da Magalu
+    url = "https://api-produtos.magazineluiza.com.br/product/grid?sortType=relevance&limit=5"
     
     try:
-        resp = requests.get(url, headers=headers)
-        print(f"Status Promobit: {resp.status_code}")
+        resp = requests.get(url, headers=HEADERS)
+        if resp.status_code == 200:
+            data = resp.json()
+            produtos = data.get('products', [])
+            if produtos:
+                item = random.choice(produtos)
+                nome = item.get('title')
+                preco = f"R$ {item.get('price', 0):.2f}".replace('.', ',')
+                link = item.get('url')
+                
+                # TENTA AFILIAÇÃO MAGALU
+                # Nota: A Magalu exige cadastro no programa de parceiros para gerar link.
+                # Se tiver um ID de parceiro, tentamos adicionar, mas geralmente
+                # o link correto vem do painel deles. Aqui usamos o link direto.
+                return {
+                    "loja": "Magazine Luiza",
+                    "nome": nome,
+                    "preco": preco,
+                    "link": link
+                }
+    except Exception as e:
+        print(f"Erro Magalu: {e}")
+    return None
+
+def buscar_shopee_mobile():
+    print(">>> Tentando Shopee (Método Mobile)...")
+    # Endpoint alternativo que simula busca de celular
+    url = "https://shopee.com.br/api/v4/recommend/recommend?bundle=flash_sale_landing_page_card&limit=5"
+    
+    try:
+        # Headers específicos de celular para evitar bloqueio
+        mob_headers = HEADERS.copy()
+        mob_headers['User-Agent'] = 'okhttp/4.9.2' 
+        
+        resp = requests.get(url, headers=mob_headers)
         
         if resp.status_code == 200:
             data = resp.json()
-            ofertas = data.get('offers', [])
-            
-            if not ofertas:
-                print("Lista de ofertas vazia.")
-                return None
-            
-            # Vamos pegar a primeira oferta da lista (a mais quente)
-            item = ofertas[0]
-            
-            nome = item.get('title')
-            preco_antigo = item.get('oldPrice', 0) / 100
-            preco_novo = item.get('price', 0) / 100
-            desconto = item.get('discount', 0)
-            loja = item.get('store', {}).get('name', 'Loja Parceira')
-            
-            # O Promobit retorna o link direto para a loja
-            # Às vezes é um link curto do próprio Promobit que redireciona.
-            # Para afiliar, precisamos tratar a URL base.
-            link_original = item.get('link') # Este link pode já ser redirecionado
-            
-            # Tenta extrair a URL real se for Shopee/ML para aplicar o ID de afiliado
-            # Nota: Se o link do Promobit for redirecional, usamos ele direto
-            # pois garantir a afiliação por cima do link do Promobit é complexo.
-            # Mas se o link for direto, tentamos afiliar.
-            
-            link_final = link_original # Default: usa o link do Promobit
-            
-            # Tenta converter para link de afiliado se tivermos o ID
-            # (Isso depende de como o Promobit entrega o link, muitas vezes ele entrega direto)
-            
-            texto_preco = f"De R$ {preco_antigo:.2f} por <b>R$ {preco_novo:.2f}</b> ({desconto}% OFF)" if preco_antigo > preco_novo else f"R$ {preco_novo:.2f}"
-
-            return {
-                "nome": nome,
-                "preco": texto_preco,
-                "loja": loja,
-                "link": link_final
-            }
-        else:
-            print(f"Erro Promobit: {resp.text}")
-            return None
+            # A estrutura da resposta da Shopee muda muito. 
+            # Tentamos encontrar a lista de itens de forma genérica.
+            if 'data' in data and 'sections' in data['data']:
+                secoes = data['data']['sections'][0]
+                itens = secoes.get('data', {}).get('item', [])
+                
+                if itens:
+                    p = itens[0]
+                    item_id = p.get('itemid')
+                    shop_id = p.get('shopid')
+                    nome = p.get('name')
+                    preco = f"R$ {p.get('price_min', 0) / 100000:.2f}".replace('.', ',')
+                    
+                    link_base = f"https://shopee.com.br/product/{shop_id}/{item_id}"
+                    
+                    # GERA LINK DE AFILIADO SHOPEE
+                    # O parâmetro 'af_siteid' é o padrão para afiliação básica
+                    link_final = f"{link_base}?af_siteid={SHOPEE_ID}" if SHOPEE_ID else link_base
+                    
+                    return {
+                        "loja": "Shopee",
+                        "nome": nome,
+                        "preco": preco,
+                        "link": link_final
+                    }
     except Exception as e:
-        print(f"Erro exceção: {e}")
-        return None
+        print(f"Erro Shopee: {e}")
+    return None
 
 if __name__ == "__main__":
-    produto = buscar_oferta_promobit()
+    produto = None
     
+    # Estratégia: Tenta Magalu primeiro (mais estável), depois Shopee
+    produto = buscar_magalu()
+    
+    if not produto:
+        produto = buscar_shopee_mobile()
+
+    # Se encontrou algo
     if produto:
         msg = f"""
-🔥 <b>OFERTA TOP DO DIA</b> 🔥
+🛒 <b>{produto['loja']}</b>
 
-📦 <b>Produto:</b> {produto['nome']}
-🏪 <b>Loja:</b> {produto['loja']}
+📦 <b>{produto['nome']}</b>
 💰 <b>Preço:</b> {produto['preco']}
 
-👉 <a href="{produto['link']}">PEGAR OFERTA AGORA</a>
+👉 <a href="{produto['link']}">COMPRAR AGORA</a>
+
+<i>Link gerado automaticamente.</i>
 """
         enviar_telegram(msg)
     else:
-        # Se falhar, manda aviso técnico
-        enviar_telegram("⚠️ Robô passou aqui, mas as APIs estão instáveis agora. Tentarei novamente mais tarde.")
+        enviar_telegram("🤖 Robô pesquisando, mas Shopee/Magalu bloquearam a requisição automática agora. Tentarei mais tarde.")

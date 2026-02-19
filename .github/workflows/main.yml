@@ -1,0 +1,28 @@
+name: Robô de Promoções
+
+on:
+  schedule:
+    # Roda a cada 6 horas (use crontab guru para ajustar)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Permite rodar manualmente com um botão
+
+jobs:
+  rodar-robo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pegar o código
+        uses: actions/checkout@v3
+
+      - name: Instalar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Executar o Robô
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py

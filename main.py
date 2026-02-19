@@ -85,4 +85,6 @@ if __name__ == "__main__":
         enviar_telegram(msg)
     else:
         # Mensagem de teste para saber que o robô está vivo, mas sem ofertas
-        msg
+        msg_teste = "⚠️ Robô online, mas não encontrei ofertas novas nas APIs públicas agora. Verifique os logs."
+        enviar_telegram(msg_teste)
+        print("Nenhuma oferta encontrada para enviar.")
